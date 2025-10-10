@@ -1,0 +1,15 @@
+{
+  "best_params": {
+    "n_factors": 100,
+    "n_epochs": 30,
+    "lr_all": 0.01,
+    "reg_all": 0.1
+  },
+  "test_rmse": 0.860857365771516,
+  "test_mae": 0.6686995378119739,
+  "training_data_size": 100794,
+  "n_users": 611,
+  "n_items": 9703,
+  "sparsity": "98.30%",
+  "timestamp": "2025-10-10T11:48:52.501754"
+}
