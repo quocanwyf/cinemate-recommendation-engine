@@ -72,11 +72,16 @@ async def get_svd_recommendations(request: SvdRecommendationRequest):
     try:
         predictions = []
         for movie_id in request.movie_ids:
-            # uid và iid phải là chuỗi để khớp với dữ liệu train
-            pred = svd_model.predict(uid=request.user_id, iid=str(movie_id))
-            predictions.append({'movieId': int(pred.iid), 'score': round(pred.est, 4)})
+            # uid = string UUID, iid = integer movie ID (giống code cũ)
+            pred = svd_model.predict(uid=request.user_id, iid=movie_id)
+            predictions.append({
+                'movieId': movie_id,
+                'score': round(pred.est, 4)
+            })
         
+        # Sort by score descending
         predictions.sort(key=lambda x: x['score'], reverse=True)
+        
         return {"data": predictions}
         
     except Exception as e:
