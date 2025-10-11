@@ -88,5 +88,6 @@ Thumbs.db
 models/
 *.pkl
 *.npy
+*.npz
 model_info.json
 .env

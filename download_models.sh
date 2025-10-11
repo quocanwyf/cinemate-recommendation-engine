@@ -1,23 +1,19 @@
 #!/bin/bash
-
-# Dừng lại nếu có lỗi
 set -e
 
 echo ">>> Creating models directory..."
 mkdir -p models
 
 echo ">>> Downloading SVD model..."
-# Lấy link chia sẻ của Google Drive và trích xuất ID file
-# Ví dụ link: https://drive.google.com/file/d/FILE_ID/view?usp=sharing
-# Thay FILE_ID_SVD bằng ID thật của bạn
-gdown --id 1cw4trFOJcKElY_VVBuvmQAvKT38vx9UA -O models/svd_production_model
+gdown 1LBJTRTjHKTuMHJLEgI7KCsb6Q0sgK7ni -O models/svd_production_model.pkl
 
-echo ">>> Downloading Cosine Similarity matrix..."
-# Thay FILE_ID_COSINE bằng ID thật của bạn
-gdown --id 1pegfmlxEaAWft1EKUP8eqXzbRKbJ0I9G -O models/cosine_similarity_matrix.npy
+echo ">>> Downloading TF-IDF matrix..."
+gdown 18JThN9cGmqUS_HBRZXAEwYx6CxJOj5R9 -O models/tfidf_matrix.npz
 
-echo ">>> Downloading Movies DataFrame..."
-# Thay FILE_ID_DATAFRAME bằng ID thật của bạn
-gdown --id 1wwrl_48EJ39HCFtjjMf7Qy3pHl5nKhH5 -O models/movies_df_for_similarity.pkl
+echo ">>> Downloading TF-IDF vectorizer..."
+gdown 1uawGB5xbvcPBOdaYn1BuuOpWtdrLf90y -O models/tfidf_vectorizer.pkl
+
+echo ">>> Downloading Movies DataFrame for TF-IDF..."
+gdown 1rTLhx8XJBY-8kcDen4UwawHed3dWWhL2 -O models/movies_df_for_tfidf.pkl
 
 echo ">>> Model download complete."

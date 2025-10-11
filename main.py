@@ -15,52 +15,18 @@ indices = None
 
 # Load SVD model
 try:
-    print("📦 Loading SVD recommendation model...")
+    # Tải SVD model
+    _, svd_model = dump.load('models/svd_production_model')
+    print("SVD model loaded.")
     
-    if os.path.exists('models/svd_production_model'):
-        _, svd_model = dump.load('models/svd_production_model')
-        print("✅ SVD Model loaded successfully!")
-    else:
-        print("⚠️  SVD model file not found")
-    
-    if os.path.exists('models/model_info.json'):
-        with open('models/model_info.json', 'r') as f:
-            model_info = json.load(f)
-        print("✅ Model info loaded successfully!")
-    else:
-        print("⚠️  Model info file not found")
-        
-except Exception as e:
-    svd_model = None
-    model_info = {}
-    print(f"❌ SVD Model loading failed: {e}")
+    # Tải các "nguyên liệu" cho Content-Based
+    tfidf_matrix = scipy.sparse.load_npz('models/tfidf_matrix.npz')
+    movies_df = pd.read_pickle('models/movies_df_for_tfidf.pkl')
+    indices_map = pd.Series(movies_df.index, index=movies_df['id']).drop_duplicates()
+    print("Content-Based assets loaded.")
 
-# Load Content-Based model
-try:
-    print("📦 Loading Content-Based model...")
-    
-    cosine_matrix_path = 'models/cosine_similarity_matrix.npy'
-    movies_df_path = 'models/movies_df_for_similarity.pkl'
-    
-    if os.path.exists(cosine_matrix_path) and os.path.exists(movies_df_path):
-        cosine_sim_matrix = np.load(cosine_matrix_path)
-        movies_df = pd.read_pickle(movies_df_path)
-        
-        # ✅ Tạo indices mapping
-        indices = pd.Series(movies_df.index, index=movies_df['id']).drop_duplicates()
-        
-        print("✅ Content-Based model loaded successfully!")
-        print(f"   - Movies in model: {len(movies_df)}")
-        print(f"   - Similarity matrix shape: {cosine_sim_matrix.shape}")
-    else:
-        print("⚠️  Content-based model files not found")
-        print("💡 Run notebook locally to generate these files")
-        
 except Exception as e:
-    cosine_sim_matrix = None
-    movies_df = None
-    indices = None  # ✅ QUAN TRỌNG: Set indices = None
-    print(f"⚠️  Content-Based model loading failed: {e}")
+    print(f"CRITICAL: Failed to load models on startup: {e}")
 
 app = FastAPI(title="CineMate Recommendation API")
 
@@ -97,47 +63,29 @@ async def get_svd_recommendations(request: RecommendationRequest):
 
 @app.get("/recommend/content-based/{movie_id}")
 async def get_content_based_recommendations(movie_id: int, top_n: int = 10):
-    # ✅ Check all required variables
-    if cosine_sim_matrix is None or movies_df is None or indices is None:
-        raise HTTPException(
-            status_code=503, 
-            detail="Content-Based model not available. Run notebook to generate model files."
-        )
+    if tfidf_matrix is None or movies_df is None:
+        raise HTTPException(status_code=503, detail="Content-Based model is not available.")
     
     try:
-        # ✅ Check if movie exists in model
-        if movie_id not in indices:
-            available_sample = list(indices.index[:10])
-            raise HTTPException(
-                status_code=404, 
-                detail=f"Movie ID {movie_id} not found. Available sample: {available_sample}"
-            )
+        idx = indices_map[movie_id]
         
-        # Get movie index
-        idx = indices[movie_id]
+        # TÍNH TOÁN THEO YÊU CẦU:
+        # Chỉ tính cosine similarity cho 1 phim này với tất cả các phim khác
+        cosine_similarities = cosine_similarity(tfidf_matrix[idx], tfidf_matrix).flatten()
         
-        # Calculate similarity scores
-        sim_scores = list(enumerate(cosine_sim_matrix[idx]))
+        # Lấy index của các phim tương tự
+        sim_scores = list(enumerate(cosine_similarities))
         sim_scores = sorted(sim_scores, key=lambda x: x[1], reverse=True)
-        
-        # Get top N similar movies (skip first one - itself)
         sim_scores = sim_scores[1:top_n+1]
-        
-        # Get movie IDs
         movie_indices = [i[0] for i in sim_scores]
+        
         recommended_movie_ids = movies_df['id'].iloc[movie_indices].tolist()
-        
-        return {
-            "data": recommended_movie_ids,
-            "source_movie_id": movie_id,
-            "total_recommendations": len(recommended_movie_ids)
-        }
-        
-    except HTTPException:
-        raise
+        return {"data": recommended_movie_ids}
+    except KeyError:
+        raise HTTPException(status_code=404, detail=f"Movie with ID {movie_id} not found in model.")
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Content-based error: {str(e)}")
-
+        raise HTTPException(status_code=500, detail=str(e))
+    
 @app.get("/")
 async def root():
     return {
