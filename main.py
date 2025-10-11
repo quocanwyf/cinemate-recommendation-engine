@@ -2,11 +2,12 @@ from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 from surprise import dump
 import json
-import numpy as np  # ✅ THÊM IMPORT
-import pandas as pd  # ✅ THÊM IMPORT
+import pickle
+import numpy as np  
+import pandas as pd   
 import os
 
-# ✅ Initialize all variables với default values
+#   Initialize all variables với default values
 svd_model = None
 model_info = {}
 cosine_sim_matrix = None
