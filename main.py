@@ -16,10 +16,13 @@ indices = None
 # Load SVD model
 try:
     # Tải SVD model
-    _, svd_model = dump.load('models/svd_production_model')
-    print("SVD model loaded.")
+    print("Loading SVD model from .pkl file...")
+    with open('models/svd_production_model.pkl', 'rb') as f:
+        svd_model = pickle.load(f)
+    print("SVD model loaded successfully!")
     
     # Tải các "nguyên liệu" cho Content-Based
+    print("Loading Content-Based assets...")
     tfidf_matrix = scipy.sparse.load_npz('models/tfidf_matrix.npz')
     movies_df = pd.read_pickle('models/movies_df_for_tfidf.pkl')
     indices_map = pd.Series(movies_df.index, index=movies_df['id']).drop_duplicates()
