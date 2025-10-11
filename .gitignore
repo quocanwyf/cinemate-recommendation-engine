@@ -83,3 +83,10 @@ cython_debug/
 # OS files
 .DS_Store
 Thumbs.db
+
+# Model files and sensitive data
+models/
+*.pkl
+*.npy
+model_info.json
+.env
