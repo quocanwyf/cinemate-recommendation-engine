@@ -1,21 +1,21 @@
-name: Smart Model Retraining
+name: Daily Model Retraining
 
 on:
   schedule:
-    - cron: "0 */6 * * *" # Chạy mỗi 6 tiếng
-  workflow_dispatch: # Để bạn bấm nút demo cho cô giáo xem
+    - cron: "0 0 * * *" # Chạy đúng 00:00 mỗi ngày
+  workflow_dispatch: # Vẫn giữ cái này để bạn bấm nút Demo cho cô giáo
 
 jobs:
-  run-pipeline:
+  run-daily-pipeline:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v3
       - uses: actions/setup-python@v4
         with:
           python-version: "3.12"
-      - name: Install
+      - name: Install Dependencies
         run: pip install -r requirements.txt
-      - name: Execute
+      - name: Run Retrain
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
           RENDER_DEPLOY_HOOK: ${{ secrets.RENDER_DEPLOY_HOOK }}
