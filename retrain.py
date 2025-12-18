@@ -39,8 +39,8 @@ def main():
     # --- 2. TẢI DỮ LIỆU ---
     print("📥 Đang lấy dữ liệu từ Database...")
     # LƯU Ý: Kiểm tra tên bảng là 'Rating' hay 'ratings' để tránh lỗi hôm trước nhé!
-    df_ratings = pd.read_sql("SELECT user_id, movie_id, rating FROM ratings", engine)
-    df_movies = pd.read_sql("SELECT id, title, overview, genres FROM movies", engine)
+    df_ratings = pd.read_sql("SELECT user_id, movie_id, rating FROM Rating", engine)
+    df_movies = pd.read_sql("SELECT id, title, overview, genres FROM Movie", engine)
 
     # --- 3. HUẤN LUYỆN MODEL ---
     print(f"🧠 Đang huấn luyện với {len(df_ratings)} ratings...")
