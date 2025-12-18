@@ -124,42 +124,6 @@ async def predict_batch(request: SvdBatchRequest):
         print(f"Error in batch: {e}")
         raise HTTPException(status_code=500, detail="Error during batch prediction")
 
-@app.get("/recommend/svd/{user_id}", tags=["Collaborative"])
-async def get_top_n_personalized(
-    user_id: str = Path(..., description="UUID của user"),
-    top_n: int = Query(10, ge=1, le=50)
-):
-    """Gợi ý Top N phim cá nhân hóa cho User từ toàn bộ kho dữ liệu (O(n) loop)"""
-    if not svd_model or movies_df is None:
-        raise HTTPException(status_code=503, detail="Models not ready")
-    
-    # Simple UUID check for GET path
-    if len(user_id) != 36:
-         raise HTTPException(status_code=400, detail="Invalid UUID format")
-
-    start_time = time.time()
-    try:
-        all_movie_ids = movies_df['id'].values
-        predictions = []
-        
-        for m_id in all_movie_ids:
-            p = svd_model.predict(uid=user_id, iid=int(m_id))
-            predictions.append({"movieId": int(m_id), "score": round(p.est, 4)})
-        
-        predictions.sort(key=lambda x: x['score'], reverse=True)
-        
-        return {
-            "userId": user_id,
-            "recommendations": predictions[:top_n],
-            "metadata": {
-                "execution_time": f"{round(time.time() - start_time, 3)}s",
-                "total_candidates": len(all_movie_ids)
-            }
-        }
-    except Exception as e:
-        print(f"Error in Top-N: {e}")
-        raise HTTPException(status_code=500, detail="Internal server error")
-
 @app.get("/recommend/content-based/{movie_id}", tags=["Content"])
 async def get_similar_movies(
     movie_id: int = Path(..., ge=1),
