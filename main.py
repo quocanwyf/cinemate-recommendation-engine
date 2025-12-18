@@ -4,118 +4,184 @@ import json
 import pandas as pd
 import numpy as np
 import scipy.sparse
-from fastapi import FastAPI, HTTPException
-from pydantic import BaseModel
-from surprise import dump
+import time
+import re
+from fastapi import FastAPI, HTTPException, Query, Path
+from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel, Field, validator
 from sklearn.metrics.pairwise import cosine_similarity
+from typing import List, Optional
 
-# --- KHỞI TẠO CÁC BIẾN MODEL ---
+# --- CẤU HÌNH & BIẾN TOÀN CỤC ---
+MODELS_PATH = 'models'
 svd_model = None
 tfidf_matrix = None
+tfidf_vectorizer = None  # File thứ 4: Dùng để transform text mới nếu cần
 movies_df = None
 indices_map = None
-model_info = {}
 
-# --- TẢI CÁC MODEL VÀ ASSETS KHI KHỞI ĐỘNG ---
-try:
-    print("--- Loading All Models on Startup ---")
+app = FastAPI(
+    title="CineMate AI Recommendation Engine",
+    description="API hệ thống gợi ý phim Hybrid (SVD + Content-Based)",
+    version="2.1.0"
+)
+
+# Cấu hình CORS
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# --- 1. STARTUP: LOAD ĐỦ 4 TÀI NGUYÊN ---
+@app.on_event("startup")
+def startup_event():
+    global svd_model, tfidf_matrix, tfidf_vectorizer, movies_df, indices_map
+    print("="*60)
+    print("🚀 CINEMATE AI SERVER STARTING...")
+    try:
+        # Load SVD
+        with open(f'{MODELS_PATH}/svd_model_v1.pkl', 'rb') as f:
+            svd_model = pickle.load(f)
+        
+        # Load Matrix & Vectorizer
+        tfidf_matrix = scipy.sparse.load_npz(f'{MODELS_PATH}/tfidf_matrix.npz')
+        with open(f'{MODELS_PATH}/tfidf_vectorizer.pkl', 'rb') as f:
+            tfidf_vectorizer = pickle.load(f)
+            
+        # Load Movie Map & Build Index
+        movies_df = pd.read_pickle(f'{MODELS_PATH}/movie_map.pkl')
+        # Đảm bảo index của Series là movieId, value là số thứ tự dòng trong matrix
+        indices_map = pd.Series(movies_df.index, index=movies_df['id'])
+        
+        print(f"✅ Loaded 4/4 assets. Matrix shape: {tfidf_matrix.shape}")
+        print("="*60)
+    except FileNotFoundError as e:
+        print(f"❌ CRITICAL ERROR: Missing file in '{MODELS_PATH}' folder: {e}")
+    except Exception as e:
+        print(f"❌ UNEXPECTED ERROR DURING STARTUP: {e}")
+
+# --- 2. VALIDATION SCHEMA ---
+class SvdBatchRequest(BaseModel):
+    user_id: str = Field(..., description="UUID của người dùng")
+    movie_ids: List[int] = Field(..., min_items=1, max_items=500, description="List 1-500 movieIds")
+
+    @validator('user_id')
+    def check_uuid_format(cls, v):
+        uuid_regex = re.compile(r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$', re.I)
+        if not uuid_regex.match(v):
+            raise ValueError('user_id must be a valid UUID string (36 chars)')
+        return v
+
+# --- 3. API ENDPOINTS ---
+
+@app.get("/", tags=["Health"])
+async def health_check():
+    # Kiểm tra xem các biến đã được gán giá trị và không phải None
+    files = [
+        svd_model is not None,
+        tfidf_matrix is not None,
+        tfidf_vectorizer is not None,
+        movies_df is not None
+    ]
     
-    # 1. Tải SVD model từ file .pkl
-    print("Loading SVD model from .pkl file...")
-    with open('models/svd_production_model.pkl', 'rb') as f:
-        svd_model = pickle.load(f)
-    print("SVD model loaded successfully!")
+    count_loaded = sum(files)
     
-    # 2. Tải các "nguyên liệu" cho Content-Based
-    print("Loading Content-Based assets...")
-    tfidf_matrix = scipy.sparse.load_npz('models/tfidf_matrix.npz')
-    movies_df = pd.read_pickle('models/movies_df_for_tfidf.pkl')
-    # Tạo bản đồ ánh xạ: key là movieId (dạng int), value là index của nó trong DataFrame
-    indices_map = pd.Series(movies_df.index, index=movies_df['id'])
-    print("Content-Based assets loaded successfully!")
-
-    # 3. Tải file thông tin model (nếu có)
-    model_info_path = 'models/model_info.json'
-    if os.path.exists(model_info_path):
-        with open(model_info_path, 'r') as f:
-            model_info = json.load(f)
-        print("Model info loaded.")
-
-except Exception as e:
-    print(f"CRITICAL: Failed to load models on startup: {e}")
-
-# --- KHỞI TẠO ỨNG DỤNG FASTAPI ---
-app = FastAPI(title="CineMate Recommendation API", version="1.0.0")
-
-# --- ĐỊNH NGHĨA CÁC LỚP REQUEST BODY ---
-class SvdRecommendationRequest(BaseModel):
-    user_id: str
-    movie_ids: list[int]
-
-# --- ĐỊNH NGHĨA CÁC API ENDPOINTS ---
-
-@app.get("/")
-async def root():
     return {
-        "message": "🎬 CineMate Recommendation API is running!",
-        "models_status": {
-            "svd": "loaded" if svd_model else "failed_to_load",
-            "content_based": "loaded" if tfidf_matrix is not None else "failed_to_load",
+        "status": "online" if count_loaded == 4 else "error",
+        "assets_loaded": f"{count_loaded}/4",
+        "details": {
+            "svd": "OK" if files[0] else "Missing",
+            "matrix": "OK" if files[1] else "Missing",
+            "vectorizer": "OK" if files[2] else "Missing",
+            "movie_map": "OK" if files[3] else "Missing"
         }
     }
 
-@app.post("/recommend/svd")
-async def get_svd_recommendations(request: SvdRecommendationRequest):
+
+
+@app.post("/recommend/svd/batch", tags=["Collaborative"])
+async def predict_batch(request: SvdBatchRequest):
+    """Dự đoán điểm cho một nhóm phim cụ thể (Dùng để Ranking ở Backend)"""
     if not svd_model:
-        raise HTTPException(status_code=503, detail="SVD Model is not available.")
+        raise HTTPException(status_code=503, detail="SVD engine is offline")
     
     try:
-        predictions = []
-        for movie_id in request.movie_ids:
-            # uid = string UUID, iid = integer movie ID (giống code cũ)
-            pred = svd_model.predict(uid=request.user_id, iid=movie_id)
-            predictions.append({
-                'movieId': movie_id,
-                'score': round(pred.est, 4)
+        results = []
+        for m_id in request.movie_ids:
+            # uid: str (UUID), iid: int (movieId)
+            pred = svd_model.predict(uid=request.user_id, iid=int(m_id))
+            results.append({
+                "movieId": m_id,
+                "score": round(pred.est, 4)
             })
         
-        # Sort by score descending
+        results.sort(key=lambda x: x['score'], reverse=True)
+        return {"data": results}
+    except Exception as e:
+        print(f"Error in batch: {e}")
+        raise HTTPException(status_code=500, detail="Error during batch prediction")
+
+@app.get("/recommend/svd/{user_id}", tags=["Collaborative"])
+async def get_top_n_personalized(
+    user_id: str = Path(..., description="UUID của user"),
+    top_n: int = Query(10, ge=1, le=50)
+):
+    """Gợi ý Top N phim cá nhân hóa cho User từ toàn bộ kho dữ liệu (O(n) loop)"""
+    if not svd_model or movies_df is None:
+        raise HTTPException(status_code=503, detail="Models not ready")
+    
+    # Simple UUID check for GET path
+    if len(user_id) != 36:
+         raise HTTPException(status_code=400, detail="Invalid UUID format")
+
+    start_time = time.time()
+    try:
+        all_movie_ids = movies_df['id'].values
+        predictions = []
+        
+        for m_id in all_movie_ids:
+            p = svd_model.predict(uid=user_id, iid=int(m_id))
+            predictions.append({"movieId": int(m_id), "score": round(p.est, 4)})
+        
         predictions.sort(key=lambda x: x['score'], reverse=True)
         
-        return {"data": predictions}
-        
+        return {
+            "userId": user_id,
+            "recommendations": predictions[:top_n],
+            "metadata": {
+                "execution_time": f"{round(time.time() - start_time, 3)}s",
+                "total_candidates": len(all_movie_ids)
+            }
+        }
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"SVD prediction error: {str(e)}")
+        print(f"Error in Top-N: {e}")
+        raise HTTPException(status_code=500, detail="Internal server error")
 
-@app.get("/recommend/content-based/{movie_id}")
-async def get_content_based_recommendations(movie_id: int, top_n: int = 10):
-    if tfidf_matrix is None or movies_df is None:
-        raise HTTPException(status_code=503, detail="Content-Based model is not available.")
+@app.get("/recommend/content-based/{movie_id}", tags=["Content"])
+async def get_similar_movies(
+    movie_id: int = Path(..., ge=1),
+    top_n: int = Query(10, ge=1, le=50)
+):
+    """Tìm phim tương tự dựa trên nội dung (Cosine Similarity)"""
+    if tfidf_matrix is None or indices_map is None:
+        raise HTTPException(status_code=503, detail="Content engine offline")
     
     try:
-        # Lấy index của phim từ movieId
+        if movie_id not in indices_map:
+            raise HTTPException(status_code=404, detail=f"Movie ID {movie_id} not found in AI assets")
+            
         idx = indices_map[movie_id]
+        # Tính toán vector similarity
+        cosine_sim = cosine_similarity(tfidf_matrix[idx], tfidf_matrix).flatten()
         
-        # Chỉ tính cosine similarity cho 1 phim này với tất cả các phim khác
-        cosine_similarities = cosine_similarity(tfidf_matrix[idx], tfidf_matrix).flatten()
+        # Lấy top N (bỏ qua phần tử đầu tiên vì là chính nó)
+        related_indices = cosine_sim.argsort()[-(top_n+1):-1][::-1]
+        recommended_ids = movies_df['id'].iloc[related_indices].astype(int).tolist()
         
-        # Lấy index và điểm của các phim tương tự
-        sim_scores = list(enumerate(cosine_similarities))
-        sim_scores = sorted(sim_scores, key=lambda x: x[1], reverse=True)
-        sim_scores = sim_scores[1:top_n+1]
-        
-        # Lấy ID của các phim đó
-        movie_indices = [i[0] for i in sim_scores]
-        recommended_movie_ids = movies_df['id'].iloc[movie_indices].tolist()
-        
-        return {"data": recommended_movie_ids}
-    except KeyError:
-        raise HTTPException(status_code=404, detail=f"Movie with ID {movie_id} not found in model.")
+        return {"data": recommended_ids}
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-@app.get("/model/info")
-async def get_model_info_endpoint():
-    if not model_info:
-        raise HTTPException(status_code=404, detail="Model info file not found.")
-    return model_info
+        print(f"Error in Content-Based: {e}")
+        raise HTTPException(status_code=500, detail="AI Similarity calculation failed")
