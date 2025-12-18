@@ -1,0 +1,23 @@
+name: Smart Model Retraining
+
+on:
+  schedule:
+    - cron: "0 */6 * * *" # Chạy mỗi 6 tiếng
+  workflow_dispatch: # Để bạn bấm nút demo cho cô giáo xem
+
+jobs:
+  run-pipeline:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - uses: actions/setup-python@v4
+        with:
+          python-version: "3.12"
+      - name: Install
+        run: pip install -r requirements.txt
+      - name: Execute
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          RENDER_DEPLOY_HOOK: ${{ secrets.RENDER_DEPLOY_HOOK }}
+          GDRIVE_SERVICE_ACCOUNT_JSON: ${{ secrets.GDRIVE_SERVICE_ACCOUNT_JSON }}
+        run: python retrain.py
